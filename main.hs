@@ -8,28 +8,54 @@ instance (Show v) => Show (Result v) where
 
 data Derivs = Derivs
   { dvAdditive :: Result Int,
+    dvAdditiveSuffix :: Result (Int -> Int),
     dvMultitive :: Result Int,
     dvPrimary :: Result Int,
     dvDecimal :: Result Int,
     dvChar :: Result Char
   }
 
+-- Additive <- Multitive AdditiveSuffix
 pAdditive :: Derivs -> Result Int
-pAdditive d = alt1
+pAdditive d = case dvMultitive d of
+  Parsed vl d' ->
+    case dvAdditiveSuffix d' of
+      Parsed f d'' -> Parsed (f vl) d''
+  _ -> NoParse
+
+-- AdditiveSuffix <-
+--           '+' Multitive AdditiveSuffix
+--         / '-' Multitive AdditiveSuffix
+--         / ()
+pAdditiveSuffix :: Derivs -> Result (Int -> Int)
+pAdditiveSuffix d = alt1
   where
-    -- Additive <- Multitive '+' Additive
-    alt1 = case dvMultitive d of
-      Parsed vleft d' ->
-        case dvChar d' of
-          Parsed '+' d'' ->
-            case dvAdditive d'' of
-              Parsed vright d''' -> Parsed (vleft + vright) d'''
+    -- Alternative 1: '+' Multitive AdditiveSuffix
+    alt1 = case dvChar d of
+      Parsed '+' d' ->
+        case dvMultitive d' of
+          Parsed vr d'' ->
+            case dvAdditiveSuffix d'' of
+              Parsed f d''' ->
+                Parsed (\vl -> f (vl + vr)) d'''
               _ -> alt2
           _ -> alt2
       _ -> alt2
 
-    -- Additive <- Multitive
-    alt2 = dvMultitive d
+    -- Alternative 2: '-' Multitive AdditiveSuffix
+    alt2 = case dvChar d of
+      Parsed '-' d' ->
+        case dvMultitive d' of
+          Parsed vr d'' ->
+            case dvAdditiveSuffix d'' of
+              Parsed f d''' ->
+                Parsed (\vl -> f (vl - vr)) d'''
+              _ -> alt3
+          _ -> alt3
+      _ -> alt3
+
+    -- Alternative 3: (empty string)
+    alt3 = Parsed id d
 
 pMultitive :: Derivs -> Result Int
 pMultitive d = alt1
@@ -121,8 +147,9 @@ pDecimal d = alt1
 parse :: String -> Derivs
 parse s = d
   where
-    d = Derivs add mult prim dec chr
+    d = Derivs add addSuffix mult prim dec chr
     add = pAdditive d
+    addSuffix = pAdditiveSuffix d
     mult = pMultitive d
     prim = pPrimary d
     dec = pDecimal d
